@@ -4,6 +4,7 @@ from channels.db import database_sync_to_async
 from django.utils import timezone
 from .models import Game
 import random
+from django.db.models import Q
 
 class GameConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -45,17 +46,24 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def find_or_create_game(self):
-        game = Game.objects.filter(status=Game.WAITING).first()
+        game = Game.objects.filter(status=Game.WAITING, player2_ip__isnull=True).first()
         
         if game:
-            if not game.player1_ip:
-                game.player1_ip = self.player_ip
-            elif not game.player2_ip and game.player1_ip != self.player_ip:
+            if game.player1_ip != self.player_ip:
                 game.player2_ip = self.player_ip
-            game.save()
-            return game
-            
-        return Game.objects.create(player1_ip=self.player_ip)
+                game.save()
+                return game
+            return None  
+        
+        existing_game = Game.objects.filter(
+            Q(player1_ip=self.player_ip) | Q(player2_ip=self.player_ip),
+            status__in=[Game.WAITING, Game.PLAYING]
+        ).first()
+        
+        if not existing_game:
+            return Game.objects.create(player1_ip=self.player_ip)
+        
+        return None
 
     async def start_game(self):
         game = await self.get_game()
