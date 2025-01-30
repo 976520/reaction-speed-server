@@ -3,12 +3,10 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.utils import timezone
 from .models import Game
-import asyncio
 import random
 
 class GameConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.game = None
         self.player_ip = self.scope['client'][0]
         await self.accept()
         
@@ -20,7 +18,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.start_game()
 
     async def disconnect(self, close_code):
-        if self.game_id:
+        if hasattr(self, 'game_id'):
             await self.channel_layer.group_discard(self.game_id, self.channel_name)
             await self.end_game()
 
@@ -28,33 +26,51 @@ class GameConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         action = data.get('action')
         
-        if action == 'click':
-            game = await self.get_game()
-            if game.status == Game.PLAYING:
-                await self.handle_click(data.get('timestamp'))
+        if action == 'search_game':
+            game = await self.find_or_create_game()
+            if game.player1_ip and game.player2_ip:
+                await self.channel_layer.group_send(
+                    self.game_id,
+                    {
+                        'type': 'game_message',
+                        'message': {
+                            'action': 'start',
+                            'gameId': str(game.id),
+                            'opponentIp': self.player_ip
+                        }
+                    }
+                )
+        elif action == 'click':
+            await self.handle_click(data.get('timestamp'))
 
     @database_sync_to_async
     def find_or_create_game(self):
         game = Game.objects.filter(status=Game.WAITING).first()
         
-        if game and game.player1_ip and not game.player2_ip:
-            game.player2_ip = self.player_ip
+        if game:
+            if not game.player1_ip:
+                game.player1_ip = self.player_ip
+            elif not game.player2_ip and game.player1_ip != self.player_ip:
+                game.player2_ip = self.player_ip
             game.save()
             return game
             
-        if not game:
-            game = Game.objects.create(player1_ip=self.player_ip)
-            
-        return game
+        return Game.objects.create(player1_ip=self.player_ip)
 
     async def start_game(self):
+        game = await self.get_game()
+        game.status = Game.PLAYING
+        game.started_at = timezone.now()
+        await self.save_game(game)
+        
         await self.channel_layer.group_send(
             self.game_id,
             {
                 'type': 'game_message',
                 'message': {
                     'action': 'start',
-                    'delay': random.randint(2000, 7000)
+                    'gameId': self.game_id,
+                    'opponentIp': self.player_ip
                 }
             }
         )
@@ -83,9 +99,20 @@ class GameConsumer(AsyncWebsocketConsumer):
         return Game.objects.get(id=self.game_id)
 
     @database_sync_to_async
+    def save_game(self, game):
+        game.save()
+
+    @database_sync_to_async
     def set_winner(self, winner_ip):
         game = Game.objects.get(id=self.game_id)
         game.winner_ip = winner_ip
         game.status = Game.FINISHED
         game.finished_at = timezone.now()
-        game.save() 
+        game.save()
+
+    async def end_game(self):
+        game = await self.get_game()
+        if game.status != Game.FINISHED:
+            game.status = Game.FINISHED
+            game.finished_at = timezone.now()
+            await self.save_game(game) 
