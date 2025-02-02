@@ -3,7 +3,6 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.utils import timezone
 from .models import Game
-import random
 from django.db.models import Q
 
 class GameConsumer(AsyncWebsocketConsumer):
@@ -110,9 +109,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.finished_at = timezone.now()
         game.save()
         
-        # 로그인한 사용자인 경우 통계 업데이트
         if hasattr(self.scope, 'user') and self.scope.user.is_authenticated:
-            await self.update_user_stats(self.scope.user, reaction_time)
+            self.update_user_stats(self.scope.user, reaction_time)
 
     @database_sync_to_async
     def update_user_stats(self, user, reaction_time):
