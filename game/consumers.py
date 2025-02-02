@@ -52,17 +52,16 @@ class GameConsumer(AsyncWebsocketConsumer):
                 game.player2_ip = self.player_ip
                 game.save()
                 return game
-            return None  
         
         existing_game = Game.objects.filter(
             Q(player1_ip=self.player_ip) | Q(player2_ip=self.player_ip),
             status__in=[Game.WAITING, Game.PLAYING]
         ).first()
         
-        if not existing_game:
-            return Game.objects.create(player1_ip=self.player_ip)
+        if existing_game:
+            return existing_game
         
-        return None
+        return Game.objects.create(player1_ip=self.player_ip)
 
     async def start_game(self):
         game = await self.get_game()
