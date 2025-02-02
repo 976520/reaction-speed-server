@@ -86,18 +86,10 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def handle_click(self, timestamp):
         game = await self.get_game()
         if game.status == Game.PLAYING:
-            await self.set_winner(self.player_ip)
-            await self.channel_layer.group_send(
-                self.game_id,
-                {
-                    'type': 'game_message',
-                    'message': {
-                        'action': 'game_over',
-                        'winner': self.player_ip,
-                        'timestamp': timestamp
-                    }
-                }
-            )
+            await self.set_winner(self.player_ip, timestamp)
+            
+            if hasattr(self.scope, 'user') and self.scope.user.is_authenticated:
+                await self.update_user_stats(self.scope.user, timestamp)
 
     async def game_message(self, event):
         await self.send(text_data=json.dumps(event['message']))
@@ -111,12 +103,24 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.save()
 
     @database_sync_to_async
-    def set_winner(self, winner_ip):
+    def set_winner(self, winner_ip, reaction_time):
         game = Game.objects.get(id=self.game_id)
         game.winner_ip = winner_ip
         game.status = Game.FINISHED
         game.finished_at = timezone.now()
         game.save()
+        
+        # 로그인한 사용자인 경우 통계 업데이트
+        if hasattr(self.scope, 'user') and self.scope.user.is_authenticated:
+            await self.update_user_stats(self.scope.user, reaction_time)
+
+    @database_sync_to_async
+    def update_user_stats(self, user, reaction_time):
+        user.total_games += 1
+        user.wins += 1
+        if not user.best_reaction_time or reaction_time < user.best_reaction_time:
+            user.best_reaction_time = reaction_time
+        user.save()
 
     async def end_game(self):
         game = await self.get_game()
