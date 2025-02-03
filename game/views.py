@@ -10,14 +10,16 @@ User = get_user_model()
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
+    print(request.data) 
     serializer = UserSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.save()
-        return Response({
-            'user': UserSerializer(user).data,
-            'message': '회원가입이 완료되었습니다.',
-        }, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    if not serializer.is_valid():
+        print(serializer.errors)  
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    user = serializer.save()
+    return Response({
+        'user': UserSerializer(user).data,
+        'message': '회원가입이 완료되었습니다.',
+    }, status=status.HTTP_201_CREATED)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
