@@ -1,25 +1,31 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
+from .models import PlayerProfile
 
 User = get_user_model()
 
+class PlayerProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlayerProfile
+        fields = ('wins', 'losses', 'total_games', 'best_reaction_time')
+
 class UserSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True)
+    profile = PlayerProfileSerializer(read_only=True)
     
     class Meta:
         model = User
-        fields = ('id', 'username', 'password', 'total_games', 'wins', 'best_reaction_time')
-        read_only_fields = ('id', 'total_games', 'wins', 'best_reaction_time')
+        fields = ('id', 'username', 'password', 'profile')
         extra_kwargs = {
-            'password': {'write_only': True}
+            'password': {'write_only': True},
+            'username': {
+                'error_messages': {
+                    'unique': '이미 존재하는 사용자 이름입니다.'
+                }
+            }
         }
 
     def create(self, validated_data):
-        username = validated_data.get('username')
-        password = validated_data.get('password')
-        
-        user = User.objects.create_user(
-            username=username,
-            password=password
-        )
+        user = User.objects.create_user(**validated_data)
+        PlayerProfile.objects.create(user=user)
         return user 
